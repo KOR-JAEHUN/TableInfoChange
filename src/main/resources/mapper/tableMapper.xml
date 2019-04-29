@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.table.info.mapper.TableMapper">
+ 	<select id="selectTableList" parameterType="hashMap" resultType="hashMap">
+		select
+			A.*
+		from
+		(
+		    select 
+		    <choose>
+		    	<when test=' sidx != "" and sord != "" and sidx != null and sord != null '>
+			      ROW_NUMBER() OVER(ORDER BY ${sidx} ${sord}) AS RNUM,
+		    	</when>
+		    	<otherwise>
+			      ROW_NUMBER() OVER(ORDER BY OWNER, TB_ID) AS RNUM,
+		    	</otherwise>
+		    </choose> 
+		    OWNER, TB_ID, TB_NM, USE_YN, CNT , count(*) over() as TOTAL
+		    from ${username}.ODS_TABLE_ID
+		    <where>
+			    <if test=' owner != "ALL" '>
+			    	and OWNER = #{owner}
+				</if>		    
+			    <if test=' tableIdVal != "" and tableIdVal != null '>
+			    	and TB_ID like '%'||#{tableIdVal}||'%'
+			    </if>
+		    </where>
+		) A
+		<if test=' sNum != "" and sNum != null '>
+			where A.rnum between ${sNum} and ${eNum}
+		</if>
+	</select>
+	
+ 	<select id="selectTableDescList" parameterType="hashMap" resultType="hashMap">
+		select
+			A.*
+		from
+		(
+		    select
+		    <choose>
+		    	<when test=' sidx != "" and sord != "" and sidx != null and sord != null '>
+			      ROW_NUMBER() OVER(ORDER BY ${sidx} ${sord}) AS RNUM,
+		    	</when>
+		    	<otherwise>
+			      ROW_NUMBER() OVER(ORDER BY OWNER, TB_ID) AS RNUM,
+		    	</otherwise>
+		    </choose> 
+		    OWNER, TB_ID, TB_SEQ, TB_NM, COL_ID, COL_NM, COL_KEY, COL_TYPE, COL_NULL, COL_LEN, TB_PK, TB_FK, COL_DEFAULT, FK_TABLE, count(*) over() as TOTAL
+		    from ${username}.ODS_TABLE_DESC
+		    <where>
+			    <if test=' owner != "ALL" '>
+			    	and OWNER = #{owner}
+				</if>		    
+			    <if test=' tableIdVal != "" and tableIdVal != null '>
+			    	and TB_ID like '%'||#{tableIdVal}||'%'
+			    </if>
+		    </where>
+		) A
+		<if test=' sNum != "" and sNum != null '>
+			where A.rnum between ${sNum} and ${eNum}
+		</if>
+	</select>
+	
+	<update id="updateTableNm" parameterType="hashMap">
+		update ${username}.ODS_TABLE_ID
+		set TB_NM = #{tbNm}
+		where owner = #{owner}
+		and tb_id = #{tbId}
+	</update>
+	
+	<update id="updateTableDescNm" parameterType="hashMap">
+		update ${username}.ODS_TABLE_DESC
+		set
+		<if test=' colNm!="" and colNm!=null '>
+			COL_NM = #{colNm}
+		</if> 
+		<if test=' colKey!="" and colKey!=null '>
+			COL_KEY = #{colKey}
+		</if> 
+		where owner = #{owner}
+		and TB_ID = #{tbId}
+		and COL_ID = #{colId}
+	</update>
+	
+	<update id="updateUse" parameterType="hashMap">
+		update ${username}.ODS_TABLE_ID
+		set USE_YN = #{type}
+		where owner = #{owner}
+		and tb_id = #{tbId}
+	</update>
+	
+	<update id="insertTable" parameterType="hashMap">
+		insert into ${username}.ODS_TABLE_ID (OWNER, TB_ID, TB_NM, USE_YN, CNT)
+		values (#{owner}, #{tbId}, #{tbNm}, #{useYn}, #{cnt} )
+	</update>
+	
+	<update id="insertTableDesc" parameterType="hashMap">
+		insert into ${username}.ODS_TABLE_DESC (OWNER, TB_ID, TB_SEQ, TB_NM, COL_ID, COL_NM, COL_KEY, COL_TYPE, COL_NULL, COL_LEN, TB_PK, TB_FK, COL_DEFAULT, FK_TABLE)
+		values (#{owner}, #{tbId}, '1', #{tbNm}, #{colId}, #{colNm}, #{colKey}, #{colType}, #{colNull}, #{colLen}, #{tbPk}, #{tbFk}, #{colDefault}, #{fkTable} )
+	</update>
+	
+	<update id="loadTable" parameterType="hashMap">
+		INSERT INTO ${username}.ODS_TABLE_ID
+	    SELECT OWNER, TABLE_NAME, COMMENTS, 'N', 0
+		FROM DBA_TAB_COMMENTS 
+		<where>
+			<if test=' owner == "ALL" '>
+				owner in ('KRI001', 'US_IROWN', 'OKC001', 'OFD100')
+			</if>
+			<if test=' owner != "ALL" '>
+				owner = #{owner}
+			</if>
+		</where> 
+	</update>
+	
+	<update id="loadTableDesc" parameterType="hashMap">
+		INSERT INTO ${username}.ODS_TABLE_DESC
+	    SELECT A.OWNER, A.TABLE_NAME as TB_ID, '1' AS TB_SEQ,
+		A.TB_COMMENT as TB_NM, A.COLUMN_NAME as COL_ID, A.COL_COMMENT as COL_NM,
+		 CASE WHEN B.CONSTRAINT_TYPE = 'P' THEN 'PK' 
+		    WHEN B.CONSTRAINT_TYPE = 'R' THEN 'FK'
+		             ELSE NULL END COL_KEY,
+		A.DATA_TYPE as COL_TYPE, A.NULLABLE as COL_NULL ,A.DATA_LENGTH as COL_LEN,
+		CASE WHEN B.CONSTRAINT_TYPE = 'P' THEN 'PK' 
+		    ELSE NULL END TB_PK,
+		    CASE WHEN B.CONSTRAINT_TYPE = 'R' THEN 'FK'
+		             ELSE NULL END TB_FK,
+		        to_lob(A.DATA_DEFAULT) as COL_DEFAULT,
+			(SELECT TABLE_NAME
+			   FROM DBA_CONSTRAINTS A
+			  WHERE A.CONSTRAINT_NAME = B.R_CONSTRAINT_NAME
+			    AND A.OWNER = B.OWNER ) AS FK_TABLE
+		   FROM (SELECT A.OWNER, A.TABLE_NAME,
+		                CASE WHEN B.DATA_TYPE = 'NUMBER' AND B.DATA_PRECISION IS NULL THEN TO_CHAR(B.DATA_LENGTH)
+		                     WHEN B.DATA_TYPE = 'NUMBER' THEN TO_CHAR(B.DATA_PRECISION) || ',' || TO_CHAR(B.DATA_SCALE)
+		                     WHEN B.DATA_TYPE = 'DATE' THEN NULL
+		                     WHEN B.DATA_TYPE LIKE '%LOB%' THEN NULL
+		                     ELSE TO_CHAR(B.DATA_LENGTH)
+		                END DATA_LENGTH, B.COLUMN_ID, B.COLUMN_NAME, D.COMMENTS AS COL_COMMENT,
+				B.DATA_TYPE, B.NULLABLE, B.DATA_DEFAULT, E.COMMENTS AS TB_COMMENT
+		           FROM DBA_TABLES A, DBA_TAB_COLUMNS B,ODS_ALL_TABLE_LIST_2 C , DBA_COL_COMMENTS D , DBA_TAB_COMMENTS E
+		          WHERE A.OWNER = B.OWNER
+		            AND A.OWNER = C.OWNER
+		            AND A.OWNER = D.OWNER
+		            AND A.OWNER = E.OWNER(+)
+		            AND A.TABLE_NAME = B.TABLE_NAME
+		            AND A.TABLE_NAME = C.TB_NM
+		            AND A.TABLE_NAME = D.TABLE_NAME
+		            AND B.COLUMN_NAME = D.COLUMN_NAME
+		            AND A.TABLE_NAME = E.TABLE_NAME(+)
+		            <if test=' owner == "ALL" '>
+						and A.owner in ('KRI001', 'US_IROWN', 'OKC001', 'OFD100')
+					</if>
+					<if test=' owner != "ALL" '>
+						and A.owner = #{owner}
+					</if>
+		            AND C.USE_YN = 'Y' 
+		        ) A ,
+		        (SELECT A.OWNER, A.TABLE_NAME, A.CONSTRAINT_TYPE, A.R_CONSTRAINT_NAME, B.COLUMN_NAME
+		           FROM  DBA_CONSTRAINTS A, DBA_CONS_COLUMNS B
+		          WHERE  1 = 1
+		            AND  A.CONSTRAINT_TYPE IN ('P','R')
+		            AND  A.OWNER           = B.OWNER
+		            AND  A.CONSTRAINT_NAME = B.CONSTRAINT_NAME
+					<if test=' owner == "ALL" '>
+						and A.owner in ('KRI001', 'US_IROWN', 'OKC001', 'OFD100')
+					</if>
+					<if test=' owner != "ALL" '>
+						and A.owner = #{owner}
+					</if>
+		        ) B
+		  WHERE 1=1
+		    AND A.TABLE_NAME = B.TABLE_NAME(+)
+		    AND A.COLUMN_NAME = B.COLUMN_NAME(+)
+		  ORDER BY A.TABLE_NAME, A.COLUMN_ID
+	</update>
+	
+	<delete id="deleteTable" parameterType="hashMap">
+		DELETE FROM ${username}.ODS_TABLE_ID
+	</delete>
+	
+	<delete id="deleteTableDesc" parameterType="hashMap">
+		DELETE FROM ${username}.ODS_TABLE_DESC
+	</delete>
+</mapper>
